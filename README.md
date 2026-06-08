@@ -35,7 +35,7 @@ curl http://localhost:3000/health
 默认 `auto` 模式先使用 HTTP，候选结果少于 5 条时回退 Playwright：
 
 ```bash
-curl -X POST http://localhost:3000/hub/test \
+curl -sS -X POST http://localhost:3000/hub/test \
   -H 'Content-Type: application/json' \
   -d '{
     "url": "https://www.usgs.gov/mission-areas/water-resources/news",
@@ -46,7 +46,7 @@ curl -X POST http://localhost:3000/hub/test \
 只使用 HTTP：
 
 ```bash
-curl -X POST http://localhost:3000/hub/test \
+curl -sS -X POST http://localhost:3000/hub/test \
   -H 'Content-Type: application/json' \
   -d '{
     "url": "https://www.usgs.gov/mission-areas/water-resources/news",
@@ -57,7 +57,7 @@ curl -X POST http://localhost:3000/hub/test \
 强制使用 Playwright：
 
 ```bash
-curl -X POST http://localhost:3000/hub/test \
+curl -sS -X POST http://localhost:3000/hub/test \
   -H 'Content-Type: application/json' \
   -d '{
     "url": "https://www.usgs.gov/mission-areas/water-resources/news",
@@ -65,7 +65,7 @@ curl -X POST http://localhost:3000/hub/test \
   }'
 ```
 
-成功响应包含 `renderModeUsed`、最多 30 条候选新闻和当前空规则对象 `rule`。所有错误均返回：
+成功响应包含 `renderModeUsed`、最多 30 条候选新闻和当前空规则对象 `rule`。候选结果优先返回 URL path 包含 `/news/` 的链接，其次优先返回提取到发布日期的链接。所有错误均返回：
 
 ```json
 {
