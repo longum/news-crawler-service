@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { extractCandidateItems } from './extractor.js';
+import { extractCandidateItems, extractNextUrl } from './extractor.js';
 
 describe('extractCandidateItems', () => {
   it('returns useful absolute article links with nearby dates', () => {
@@ -111,5 +112,36 @@ describe('extractCandidateItems', () => {
         published_at: '2026-06-07',
       },
     ]);
+  });
+});
+
+describe('extractNextUrl', () => {
+  it('recognizes the USGS next page from the saved HTML sample', () => {
+    const html = readFileSync(new URL('../debug/usgs-news.html', import.meta.url), 'utf8');
+
+    expect(
+      extractNextUrl(html, 'https://www.usgs.gov/mission-areas/water-resources/news'),
+    ).toBe('https://www.usgs.gov/mission-areas/water-resources/news?page=1');
+  });
+
+  it('recognizes next page text and page query fallbacks', () => {
+    expect(
+      extractNextUrl(
+        '<a href="/archive?page=2">下一页</a>',
+        'https://example.com/archive?page=1',
+      ),
+    ).toBe('https://example.com/archive?page=2');
+    expect(
+      extractNextUrl(
+        '<a aria-current="page" href="?page=0">1</a><a href="?page=1">2</a>',
+        'https://example.com/archive',
+      ),
+    ).toBe('https://example.com/archive?page=1');
+    expect(
+      extractNextUrl(
+        '<a href="?page=0">1</a><a aria-current="page" href="?page=1">2</a><a href="?page=2">3</a>',
+        'https://example.com/archive?page=1',
+      ),
+    ).toBe('https://example.com/archive?page=2');
   });
 });

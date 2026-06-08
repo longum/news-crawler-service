@@ -1,5 +1,12 @@
 import { crawlWithHttp, crawlWithPlaywright } from './crawler.js';
-import type { CrawlPage, HubTestResult, RenderMode } from './types.js';
+import type {
+  CrawledPage,
+  CrawlPage,
+  HubItem,
+  HubTestResult,
+  RenderMode,
+  RenderModeUsed,
+} from './types.js';
 
 const AUTO_HTTP_MIN_ITEMS = 5;
 
@@ -16,34 +23,52 @@ const defaultDependencies: CrawlerDependencies = {
 export async function testHubPage(
   url: string,
   renderMode: RenderMode,
+  maxPages = 1,
   dependencies: CrawlerDependencies = defaultDependencies,
 ): Promise<HubTestResult> {
+  let renderModeUsed: RenderModeUsed;
+  let firstPage: CrawledPage;
+
   if (renderMode === 'playwright') {
-    return {
-      renderModeUsed: 'playwright',
-      items: await dependencies.playwrightCrawl(url),
-      rule: {},
-    };
+    renderModeUsed = 'playwright';
+    firstPage = await dependencies.playwrightCrawl(url);
+  } else {
+    try {
+      firstPage = await dependencies.httpCrawl(url);
+      renderModeUsed = 'http';
+    } catch (error) {
+      if (renderMode === 'http') throw error;
+      renderModeUsed = 'playwright';
+      firstPage = await dependencies.playwrightCrawl(url);
+    }
+
+    if (
+      renderMode === 'auto' &&
+      renderModeUsed === 'http' &&
+      firstPage.items.length < AUTO_HTTP_MIN_ITEMS
+    ) {
+      renderModeUsed = 'playwright';
+      firstPage = await dependencies.playwrightCrawl(url);
+    }
   }
 
-  let httpItems;
-  try {
-    httpItems = await dependencies.httpCrawl(url);
-  } catch (error) {
-    if (renderMode === 'http') throw error;
-    return {
-      renderModeUsed: 'playwright',
-      items: await dependencies.playwrightCrawl(url),
-      rule: {},
-    };
-  }
-  if (renderMode === 'http' || httpItems.length >= AUTO_HTTP_MIN_ITEMS) {
-    return { renderModeUsed: 'http', items: httpItems, rule: {} };
+  const crawl = renderModeUsed === 'http' ? dependencies.httpCrawl : dependencies.playwrightCrawl;
+  const visited = [url];
+  const itemsByUrl = new Map<string, HubItem>();
+  let page = firstPage;
+
+  for (let pageNumber = 1; ; pageNumber += 1) {
+    for (const item of page.items) itemsByUrl.set(item.url, item);
+
+    if (pageNumber >= maxPages || !page.nextUrl || visited.includes(page.nextUrl)) break;
+    visited.push(page.nextUrl);
+    page = await crawl(page.nextUrl);
   }
 
   return {
-    renderModeUsed: 'playwright',
-    items: await dependencies.playwrightCrawl(url),
+    renderModeUsed,
+    items: [...itemsByUrl.values()],
     rule: {},
+    pages: { visited, nextUrl: page.nextUrl },
   };
 }

@@ -118,3 +118,53 @@ export function extractCandidateItems(html: string, pageUrl: string): HubItem[] 
     .slice(0, MAX_ITEMS)
     .map(({ sameHost: _sameHost, newsPath: _newsPath, ...item }) => item);
 }
+
+export function extractNextUrl(html: string, pageUrl: string): string | null {
+  const $ = load(html);
+  const currentUrl = new URL(pageUrl);
+  currentUrl.hash = '';
+
+  const anchors = $('a[href]')
+    .toArray()
+    .filter((element) => !$(element).is('[aria-current="page"], [title*="current page" i]'));
+  const priorityMatchers = [
+    (anchor: Cheerio<AnyNode>) => (anchor.attr('rel') ?? '').toLowerCase().split(/\s+/).includes('next'),
+    (anchor: Cheerio<AnyNode>) => /(?:next|›|下一页)/i.test(normalizeText(anchor.text())),
+  ];
+
+  const resolveAnchorUrl = (anchor: Cheerio<AnyNode>): URL | null => {
+    try {
+      const nextUrl = new URL(anchor.attr('href') ?? '', pageUrl);
+      nextUrl.hash = '';
+      if (!['http:', 'https:'].includes(nextUrl.protocol) || nextUrl.href === currentUrl.href) return null;
+      return nextUrl;
+    } catch {
+      return null;
+    }
+  };
+
+  for (const matches of priorityMatchers) {
+    for (const element of anchors) {
+      const anchor = $(element);
+      if (!matches(anchor)) continue;
+
+      const nextUrl = resolveAnchorUrl(anchor);
+      if (nextUrl) return nextUrl.href;
+    }
+  }
+
+  const currentPage = Number(currentUrl.searchParams.get('page') ?? 0);
+  const pageUrls = anchors
+    .map((element) => resolveAnchorUrl($(element)))
+    .filter((url): url is URL => Boolean(url?.searchParams.has('page')));
+  const nextNumberedUrl = pageUrls
+    .map((url) => ({ url, page: Number(url.searchParams.get('page')) }))
+    .filter(({ page }) => Number.isInteger(page) && page > currentPage)
+    .sort((left, right) => left.page - right.page)[0]?.url;
+
+  if (nextNumberedUrl) return nextNumberedUrl.href;
+  const unnumberedPageUrl = pageUrls.find((url) => Number.isNaN(Number(url.searchParams.get('page'))));
+  if (unnumberedPageUrl) return unnumberedPageUrl.href;
+
+  return null;
+}

@@ -7,11 +7,24 @@ export interface HubItem {
   published_at: string | null;
 }
 
+export interface CrawledPage {
+  items: HubItem[];
+  nextUrl: string | null;
+}
+
 export interface HubTestResult {
   renderModeUsed: RenderModeUsed;
   items: HubItem[];
   rule: Record<string, never>;
+  pages: {
+    visited: string[];
+    nextUrl: string | null;
+  };
 }
 
-export type CrawlPage = (url: string) => Promise<HubItem[]>;
-export type HubTestRunner = (url: string, renderMode: RenderMode) => Promise<HubTestResult>;
+export type CrawlPage = (url: string) => Promise<CrawledPage>;
+export type HubTestRunner = (
+  url: string,
+  renderMode: RenderMode,
+  maxPages: number,
+) => Promise<HubTestResult>;

@@ -27,6 +27,7 @@ describe('app', () => {
       renderModeUsed: 'http',
       items: [],
       rule: {},
+      pages: { visited: ['https://example.com/news'], nextUrl: null },
     });
     const app = createApp(runner);
 
@@ -39,7 +40,27 @@ describe('app', () => {
       renderModeUsed: 'http',
       items: [],
       rule: {},
+      pages: { visited: ['https://example.com/news'], nextUrl: null },
     });
-    expect(runner).toHaveBeenCalledWith('https://example.com/news', 'auto');
+    expect(runner).toHaveBeenCalledWith('https://example.com/news', 'auto', 1);
+  });
+
+  it('validates maxPages and passes values up to 5 to the runner', async () => {
+    const runner = vi.fn<HubTestRunner>().mockResolvedValue({
+      renderModeUsed: 'http',
+      items: [],
+      rule: {},
+      pages: { visited: [], nextUrl: null },
+    });
+    const app = createApp(runner);
+
+    const invalid = await request(app)
+      .post('/hub/test')
+      .send({ url: 'https://example.com/news', maxPages: 6 });
+    expect(invalid.status).toBe(400);
+    expect(invalid.body).toEqual({ ok: false, error: 'maxPages must be an integer from 1 to 5' });
+
+    await request(app).post('/hub/test').send({ url: 'https://example.com/news', maxPages: 5 });
+    expect(runner).toHaveBeenLastCalledWith('https://example.com/news', 'auto', 5);
   });
 });

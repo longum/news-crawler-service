@@ -39,7 +39,8 @@ curl -sS -X POST http://localhost:3000/hub/test \
   -H 'Content-Type: application/json' \
   -d '{
     "url": "https://www.usgs.gov/mission-areas/water-resources/news",
-    "renderMode": "auto"
+    "renderMode": "auto",
+    "maxPages": 3
   }'
 ```
 
@@ -65,7 +66,18 @@ curl -sS -X POST http://localhost:3000/hub/test \
   }'
 ```
 
-成功响应包含 `renderModeUsed`、最多 30 条候选新闻和当前空规则对象 `rule`。候选结果优先返回 URL path 包含 `/news/` 的链接，其次优先返回提取到发布日期的链接。所有错误均返回：
+`maxPages` 默认为 `1`，最大为 `5`。多页候选结果按 URL 去重。成功响应包含 `renderModeUsed`、候选新闻、当前空规则对象 `rule`，以及分页状态：
+
+```json
+{
+  "pages": {
+    "visited": ["https://www.usgs.gov/mission-areas/water-resources/news"],
+    "nextUrl": "https://www.usgs.gov/mission-areas/water-resources/news?page=1"
+  }
+}
+```
+
+候选结果优先返回 URL path 包含 `/news/` 的链接，其次优先返回提取到发布日期的链接。所有错误均返回：
 
 ```json
 {

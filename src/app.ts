@@ -35,8 +35,14 @@ export function createApp(runHubTest: HubTestRunner = testHubPage) {
       return;
     }
 
+    const maxPages = request.body?.maxPages ?? 1;
+    if (!Number.isInteger(maxPages) || maxPages < 1 || maxPages > 5) {
+      response.status(400).json({ ok: false, error: 'maxPages must be an integer from 1 to 5' });
+      return;
+    }
+
     try {
-      const result = await runHubTest(url, renderMode);
+      const result = await runHubTest(url, renderMode, maxPages);
       response.json({ ok: true, url, ...result });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to test hub page';
