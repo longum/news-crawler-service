@@ -13,6 +13,89 @@ describe('app', () => {
     expect(response.body).toEqual({ ok: true });
   });
 
+  it('keeps health public when API key authentication is enabled', async () => {
+    const app = createApp(vi.fn<HubTestRunner>(), 'secret-key');
+
+    const response = await request(app).get('/health');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ ok: true });
+  });
+
+  it('rejects protected routes without a valid API key', async () => {
+    const runner = vi.fn<HubTestRunner>();
+    const app = createApp(runner, 'secret-key');
+
+    const missing = await request(app).post('/hub/test').send({ url: 'https://example.com/news' });
+    const invalid = await request(app)
+      .post('/hub/test')
+      .set('x-api-key', 'wrong-key')
+      .send({ url: 'https://example.com/news' });
+
+    expect(missing.status).toBe(401);
+    expect(missing.body).toEqual({ ok: false, error: 'unauthorized' });
+    expect(invalid.status).toBe(401);
+    expect(invalid.body).toEqual({ ok: false, error: 'unauthorized' });
+    expect(runner).not.toHaveBeenCalled();
+  });
+
+  it('authenticates protected routes before parsing their body', async () => {
+    const app = createApp(vi.fn<HubTestRunner>(), 'secret-key');
+
+    const response = await request(app)
+      .post('/hub/test')
+      .set('Content-Type', 'application/json')
+      .send('{"invalid"');
+
+    expect(response.status).toBe(401);
+    expect(response.body).toEqual({ ok: false, error: 'unauthorized' });
+  });
+
+  it('accepts x-api-key and Bearer authentication', async () => {
+    const runner = vi.fn<HubTestRunner>().mockResolvedValue({
+      renderModeUsed: 'http',
+      items: [],
+      rule: { selectors: {} },
+      pages: { visited: [], nextUrl: null, stoppedReason: null },
+    });
+    const app = createApp(runner, 'secret-key');
+
+    const apiKeyResponse = await request(app)
+      .post('/hub/test')
+      .set('x-api-key', 'secret-key')
+      .send({ url: 'https://example.com/news' });
+    const bearerResponse = await request(app)
+      .post('/hub/test')
+      .set('Authorization', 'Bearer secret-key')
+      .send({ url: 'https://example.com/news' });
+
+    expect(apiKeyResponse.status).toBe(200);
+    expect(bearerResponse.status).toBe(200);
+    expect(runner).toHaveBeenCalledTimes(2);
+  });
+
+  it('reads the API key from CRAWLER_API_KEY by default', async () => {
+    vi.stubEnv('CRAWLER_API_KEY', 'environment-key');
+    try {
+      const runner = vi.fn<HubTestRunner>().mockResolvedValue({
+        renderModeUsed: 'http',
+        items: [],
+        rule: { selectors: {} },
+        pages: { visited: [], nextUrl: null, stoppedReason: null },
+      });
+      const app = createApp(runner);
+
+      const response = await request(app)
+        .post('/hub/test')
+        .set('x-api-key', 'environment-key')
+        .send({ url: 'https://example.com/news' });
+
+      expect(response.status).toBe(200);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('rejects invalid URLs as JSON', async () => {
     const app = createApp(vi.fn<HubTestRunner>());
 

@@ -24,6 +24,40 @@ npm start
 
 默认监听 `http://localhost:3000`，可通过 `PORT` 环境变量修改端口。
 
+## API Key 鉴权
+
+设置 `CRAWLER_API_KEY` 后，除 `GET /health` 外的所有接口都需要 API Key：
+
+```bash
+CRAWLER_API_KEY='your-secret-key' npm run dev
+```
+
+生产启动：
+
+```bash
+CRAWLER_API_KEY='your-secret-key' npm start
+```
+
+请求时可使用 `x-api-key`：
+
+```bash
+curl -X POST http://localhost:3000/hub/test \
+  -H 'Content-Type: application/json' \
+  -H 'x-api-key: your-secret-key' \
+  -d '{"url":"https://example.com"}'
+```
+
+或 Bearer Token：
+
+```bash
+curl -X POST http://localhost:3000/hub/test \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer your-secret-key' \
+  -d '{"url":"https://example.com"}'
+```
+
+未设置 `CRAWLER_API_KEY` 时不启用鉴权。`GET /health` 始终无需鉴权。
+
 ## 接口测试
 
 健康检查：
@@ -37,6 +71,7 @@ curl http://localhost:3000/health
 ```bash
 curl -sS -X POST http://localhost:3000/hub/test \
   -H 'Content-Type: application/json' \
+  -H 'x-api-key: your-secret-key' \
   -d '{
     "url": "https://www.usgs.gov/mission-areas/water-resources/news",
     "renderMode": "auto",
@@ -59,6 +94,7 @@ curl -sS -X POST http://localhost:3000/hub/test \
 ```bash
 curl -sS -X POST http://localhost:3000/hub/test \
   -H 'Content-Type: application/json' \
+  -H 'x-api-key: your-secret-key' \
   -d '{
     "url": "https://www.usgs.gov/mission-areas/water-resources/news",
     "renderMode": "http"
@@ -70,6 +106,7 @@ curl -sS -X POST http://localhost:3000/hub/test \
 ```bash
 curl -sS -X POST http://localhost:3000/hub/test \
   -H 'Content-Type: application/json' \
+  -H 'x-api-key: your-secret-key' \
   -d '{
     "url": "https://www.usgs.gov/mission-areas/water-resources/news",
     "renderMode": "playwright"

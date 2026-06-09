@@ -1,4 +1,5 @@
 import express, { type ErrorRequestHandler } from 'express';
+import { timingSafeEqual } from 'node:crypto';
 import { testHubPage } from './hub-service.js';
 import type { HubSelectors, HubTestRunner, RenderMode } from './types.js';
 
@@ -36,13 +37,42 @@ function parseSelectors(value: unknown): HubSelectors | null {
   return selectors;
 }
 
-export function createApp(runHubTest: HubTestRunner = testHubPage) {
+function matchesApiKey(candidate: string | undefined, apiKey: string): boolean {
+  if (candidate === undefined) return false;
+  const candidateBuffer = Buffer.from(candidate);
+  const apiKeyBuffer = Buffer.from(apiKey);
+  return candidateBuffer.length === apiKeyBuffer.length && timingSafeEqual(candidateBuffer, apiKeyBuffer);
+}
+
+export function createApp(
+  runHubTest: HubTestRunner = testHubPage,
+  apiKey: string | undefined = process.env.CRAWLER_API_KEY,
+) {
   const app = express();
-  app.use(express.json({ limit: '32kb' }));
 
   app.get('/health', (_request, response) => {
     response.json({ ok: true });
   });
+
+  app.use((request, response, next) => {
+    if (apiKey === undefined) {
+      next();
+      return;
+    }
+
+    const authorization = request.get('authorization');
+    const bearerMatch = authorization?.match(/^Bearer\s+(.+)$/i);
+    const isAuthorized =
+      matchesApiKey(request.get('x-api-key'), apiKey) || matchesApiKey(bearerMatch?.[1], apiKey);
+    if (!isAuthorized) {
+      response.status(401).json({ ok: false, error: 'unauthorized' });
+      return;
+    }
+
+    next();
+  });
+
+  app.use(express.json({ limit: '32kb' }));
 
   app.post('/hub/test', async (request, response) => {
     const url = validateUrl(request.body?.url);
