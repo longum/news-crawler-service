@@ -41,8 +41,31 @@ export function createApp(runHubTest: HubTestRunner = testHubPage) {
       return;
     }
 
+    const delayMs = request.body?.delayMs ?? 0;
+    if (!Number.isInteger(delayMs) || delayMs < 0 || delayMs > 60_000) {
+      response.status(400).json({ ok: false, error: 'delayMs must be an integer from 0 to 60000' });
+      return;
+    }
+
+    const stopOn403 = request.body?.stopOn403 ?? true;
+    if (typeof stopOn403 !== 'boolean') {
+      response.status(400).json({ ok: false, error: 'stopOn403 must be a boolean' });
+      return;
+    }
+
+    const stopWhenNoNewItems = request.body?.stopWhenNoNewItems ?? true;
+    if (typeof stopWhenNoNewItems !== 'boolean') {
+      response.status(400).json({ ok: false, error: 'stopWhenNoNewItems must be a boolean' });
+      return;
+    }
+
     try {
-      const result = await runHubTest(url, renderMode, maxPages);
+      const result = await runHubTest(url, renderMode, {
+        maxPages,
+        delayMs,
+        stopOn403,
+        stopWhenNoNewItems,
+      });
       response.json({ ok: true, url, ...result });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to test hub page';

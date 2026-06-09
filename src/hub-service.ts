@@ -3,6 +3,7 @@ import type {
   CrawledPage,
   CrawlPage,
   HubItem,
+  HubTestOptions,
   HubTestResult,
   RenderMode,
   RenderModeUsed,
@@ -13,6 +14,7 @@ const AUTO_HTTP_MIN_ITEMS = 5;
 interface CrawlerDependencies {
   httpCrawl: CrawlPage;
   playwrightCrawl: CrawlPage;
+  sleep?: (delayMs: number) => Promise<void>;
 }
 
 const defaultDependencies: CrawlerDependencies = {
@@ -20,10 +22,19 @@ const defaultDependencies: CrawlerDependencies = {
   playwrightCrawl: crawlWithPlaywright,
 };
 
+const defaultOptions: HubTestOptions = {
+  maxPages: 1,
+  delayMs: 0,
+  stopOn403: true,
+  stopWhenNoNewItems: true,
+};
+
+const sleep = (delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+
 export async function testHubPage(
   url: string,
   renderMode: RenderMode,
-  maxPages = 1,
+  options: HubTestOptions = defaultOptions,
   dependencies: CrawlerDependencies = defaultDependencies,
 ): Promise<HubTestResult> {
   let renderModeUsed: RenderModeUsed;
@@ -45,6 +56,7 @@ export async function testHubPage(
     if (
       renderMode === 'auto' &&
       renderModeUsed === 'http' &&
+      firstPage.statusCode !== 403 &&
       firstPage.items.length < AUTO_HTTP_MIN_ITEMS
     ) {
       renderModeUsed = 'playwright';
@@ -55,12 +67,34 @@ export async function testHubPage(
   const crawl = renderModeUsed === 'http' ? dependencies.httpCrawl : dependencies.playwrightCrawl;
   const visited = [url];
   const itemsByUrl = new Map<string, HubItem>();
+  const wait = dependencies.sleep ?? sleep;
   let page = firstPage;
+  let stoppedReason: HubTestResult['pages']['stoppedReason'] = null;
 
   for (let pageNumber = 1; ; pageNumber += 1) {
-    for (const item of page.items) itemsByUrl.set(item.url, item);
+    let newItemCount = 0;
+    for (const item of page.items) {
+      if (!itemsByUrl.has(item.url)) newItemCount += 1;
+      itemsByUrl.set(item.url, item);
+    }
 
-    if (pageNumber >= maxPages || !page.nextUrl || visited.includes(page.nextUrl)) break;
+    if (options.stopOn403 && page.statusCode === 403) {
+      stoppedReason = 'http_403';
+      break;
+    }
+    if (options.stopWhenNoNewItems && newItemCount === 0) {
+      stoppedReason = 'no_new_items';
+      break;
+    }
+    if (
+      pageNumber >= options.maxPages ||
+      !page.nextUrl ||
+      visited.includes(page.nextUrl)
+    ) {
+      break;
+    }
+
+    if (options.delayMs > 0) await wait(options.delayMs);
     visited.push(page.nextUrl);
     page = await crawl(page.nextUrl);
   }
@@ -69,6 +103,6 @@ export async function testHubPage(
     renderModeUsed,
     items: [...itemsByUrl.values()],
     rule: {},
-    pages: { visited, nextUrl: page.nextUrl },
+    pages: { visited, nextUrl: page.nextUrl, stoppedReason },
   };
 }
