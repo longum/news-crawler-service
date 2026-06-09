@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { extractCandidateItems, extractNextUrl } from './extractor.js';
+import { extractCandidateItems, extractItemsBySelectors, extractNextUrl } from './extractor.js';
 
 describe('extractCandidateItems', () => {
   it('returns useful absolute article links with nearby dates', () => {
@@ -143,5 +143,57 @@ describe('extractNextUrl', () => {
         'https://example.com/archive?page=1',
       ),
     ).toBe('https://example.com/archive?page=2');
+  });
+
+  it('prioritizes a manual next selector over automatic next detection', () => {
+    const html = `
+      <a rel="next" href="?page=1">Automatic next</a>
+      <a class="load-more" href="?cursor=manual">More results</a>
+    `;
+
+    expect(
+      extractNextUrl(html, 'https://example.com/archive', '.load-more'),
+    ).toBe('https://example.com/archive?cursor=manual');
+  });
+});
+
+describe('extractItemsBySelectors', () => {
+  it('extracts and deduplicates items from fixture HTML', () => {
+    const html = `
+      <section class="result">
+        <h2 class="headline">First selector news headline</h2>
+        <a class="story-link" href="/news/first">Open</a>
+        <time class="published" datetime="2026-06-08">June 8, 2026</time>
+      </section>
+      <section class="result">
+        <h2 class="headline">Second selector news headline</h2>
+        <a class="story-link" href="https://example.com/news/second">Open</a>
+        <span class="published">June 7, 2026</span>
+      </section>
+      <section class="result">
+        <h2 class="headline">Duplicate selector news headline</h2>
+        <a class="story-link" href="/news/first">Open</a>
+      </section>
+    `;
+
+    expect(
+      extractItemsBySelectors(html, 'https://example.com/archive', {
+        item: '.result',
+        title: '.headline',
+        link: '.story-link',
+        date: '.published',
+      }),
+    ).toEqual([
+      {
+        title: 'First selector news headline',
+        url: 'https://example.com/news/first',
+        published_at: '2026-06-08',
+      },
+      {
+        title: 'Second selector news headline',
+        url: 'https://example.com/news/second',
+        published_at: '2026-06-07',
+      },
+    ]);
   });
 });

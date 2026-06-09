@@ -1,6 +1,6 @@
 import { load, type Cheerio, type CheerioAPI } from 'cheerio';
 import type { AnyNode } from 'domhandler';
-import type { HubItem } from './types.js';
+import type { HubItem, HubSelectors } from './types.js';
 
 const MAX_ITEMS = 30;
 const MIN_TITLE_LENGTH = 15;
@@ -24,6 +24,17 @@ function toAbsoluteHttpUrl(href: string, baseUrl: string): URL | null {
     if (!['http:', 'https:'].includes(url.protocol)) return null;
     if (unwantedUrlPattern.test(url.href)) return null;
     if (/\.(?:jpg|jpeg|png|gif|svg|webp|pdf|zip)(?:$|\?)/i.test(url.pathname)) return null;
+    url.hash = '';
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+function resolveHttpUrl(href: string, baseUrl: string): URL | null {
+  try {
+    const url = new URL(href, baseUrl);
+    if (!['http:', 'https:'].includes(url.protocol)) return null;
     url.hash = '';
     return url;
   } catch {
@@ -119,7 +130,41 @@ export function extractCandidateItems(html: string, pageUrl: string): HubItem[] 
     .map(({ sameHost: _sameHost, newsPath: _newsPath, ...item }) => item);
 }
 
-export function extractNextUrl(html: string, pageUrl: string): string | null {
+export function extractItemsBySelectors(
+  html: string,
+  pageUrl: string,
+  selectors: HubSelectors,
+): HubItem[] {
+  if (!selectors.item) return [];
+
+  const $ = load(html);
+  const linkSelector = selectors.link ?? 'a[href]';
+  const titleSelector = selectors.title ?? linkSelector;
+  const seen = new Set<string>();
+  const items: HubItem[] = [];
+
+  $(selectors.item).each((_, element) => {
+    const item = $(element);
+    const titleNode = item.find(titleSelector).first();
+    const linkNode = item.find(linkSelector).first();
+    const title = normalizeText(titleNode.text() || titleNode.attr('aria-label') || '');
+    const url = resolveHttpUrl(linkNode.attr('href') ?? '', pageUrl);
+    if (!title || !url || seen.has(url.href)) return;
+
+    const dateNode = selectors.date ? item.find(selectors.date).first() : null;
+    const dateValue = dateNode?.attr('datetime') ?? dateNode?.text() ?? '';
+    seen.add(url.href);
+    items.push({
+      title,
+      url: url.href,
+      published_at: normalizeDate(dateValue),
+    });
+  });
+
+  return items;
+}
+
+export function extractNextUrl(html: string, pageUrl: string, nextSelector?: string): string | null {
   const $ = load(html);
   const currentUrl = new URL(pageUrl);
   currentUrl.hash = '';
@@ -142,6 +187,11 @@ export function extractNextUrl(html: string, pageUrl: string): string | null {
       return null;
     }
   };
+
+  if (nextSelector) {
+    const manualNextUrl = resolveAnchorUrl($(nextSelector).first());
+    if (manualNextUrl) return manualNextUrl.href;
+  }
 
   for (const matches of priorityMatchers) {
     for (const element of anchors) {

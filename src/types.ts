@@ -15,17 +15,28 @@ export interface CrawledPage {
 
 export type StoppedReason = 'http_403' | 'no_new_items' | null;
 
+export interface HubSelectors {
+  item?: string;
+  title?: string;
+  link?: string;
+  date?: string;
+  next?: string;
+}
+
 export interface HubTestOptions {
   maxPages: number;
   delayMs: number;
   stopOn403: boolean;
   stopWhenNoNewItems: boolean;
+  selectors: HubSelectors;
 }
 
 export interface HubTestResult {
   renderModeUsed: RenderModeUsed;
   items: HubItem[];
-  rule: Record<string, never>;
+  rule: {
+    selectors: HubSelectors;
+  };
   pages: {
     visited: string[];
     nextUrl: string | null;
@@ -33,7 +44,7 @@ export interface HubTestResult {
   };
 }
 
-export type CrawlPage = (url: string) => Promise<CrawledPage>;
+export type CrawlPage = (url: string, selectors?: HubSelectors) => Promise<CrawledPage>;
 export type HubTestRunner = (
   url: string,
   renderMode: RenderMode,

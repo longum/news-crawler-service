@@ -26,7 +26,7 @@ describe('app', () => {
     const runner = vi.fn<HubTestRunner>().mockResolvedValue({
       renderModeUsed: 'http',
       items: [],
-      rule: {},
+      rule: { selectors: {} },
       pages: { visited: ['https://example.com/news'], nextUrl: null, stoppedReason: null },
     });
     const app = createApp(runner);
@@ -39,7 +39,7 @@ describe('app', () => {
       url: 'https://example.com/news',
       renderModeUsed: 'http',
       items: [],
-      rule: {},
+      rule: { selectors: {} },
       pages: { visited: ['https://example.com/news'], nextUrl: null, stoppedReason: null },
     });
     expect(runner).toHaveBeenCalledWith('https://example.com/news', 'auto', {
@@ -47,6 +47,7 @@ describe('app', () => {
       delayMs: 0,
       stopOn403: true,
       stopWhenNoNewItems: true,
+      selectors: {},
     });
   });
 
@@ -54,7 +55,7 @@ describe('app', () => {
     const runner = vi.fn<HubTestRunner>().mockResolvedValue({
       renderModeUsed: 'http',
       items: [],
-      rule: {},
+      rule: { selectors: {} },
       pages: { visited: [], nextUrl: null, stoppedReason: null },
     });
     const app = createApp(runner);
@@ -71,6 +72,7 @@ describe('app', () => {
       delayMs: 0,
       stopOn403: true,
       stopWhenNoNewItems: true,
+      selectors: {},
     });
   });
 
@@ -78,7 +80,7 @@ describe('app', () => {
     const runner = vi.fn<HubTestRunner>().mockResolvedValue({
       renderModeUsed: 'http',
       items: [],
-      rule: {},
+      rule: { selectors: {} },
       pages: { visited: [], nextUrl: null, stoppedReason: null },
     });
     const app = createApp(runner);
@@ -109,6 +111,38 @@ describe('app', () => {
       delayMs: 1500,
       stopOn403: false,
       stopWhenNoNewItems: false,
+      selectors: {},
+    });
+  });
+
+  it('validates and passes selectors', async () => {
+    const runner = vi.fn<HubTestRunner>().mockResolvedValue({
+      renderModeUsed: 'http',
+      items: [],
+      rule: { selectors: { item: '.result', link: '.story' } },
+      pages: { visited: [], nextUrl: null, stoppedReason: null },
+    });
+    const app = createApp(runner);
+
+    const invalid = await request(app)
+      .post('/hub/test')
+      .send({ url: 'https://example.com/news', selectors: { item: '' } });
+    expect(invalid.status).toBe(400);
+    expect(invalid.body).toEqual({
+      ok: false,
+      error: 'selectors.item must be a non-empty string',
+    });
+
+    await request(app).post('/hub/test').send({
+      url: 'https://example.com/news',
+      selectors: { item: '.result', link: '.story' },
+    });
+    expect(runner).toHaveBeenLastCalledWith('https://example.com/news', 'auto', {
+      maxPages: 1,
+      delayMs: 0,
+      stopOn403: true,
+      stopWhenNoNewItems: true,
+      selectors: { item: '.result', title: '.story', link: '.story' },
     });
   });
 });

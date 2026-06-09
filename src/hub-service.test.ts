@@ -24,6 +24,7 @@ describe('testHubPage', () => {
     delayMs: 0,
     stopOn403: true,
     stopWhenNoNewItems: true,
+    selectors: {},
   };
 
   it('uses only HTTP when renderMode is http', async () => {
@@ -182,5 +183,24 @@ describe('testHubPage', () => {
     expect(httpCrawl).toHaveBeenCalledTimes(3);
     expect(result.items).toEqual([item(1), item(2)]);
     expect(result.pages.stoppedReason).toBeNull();
+  });
+
+  it('passes selectors to every page and returns them in rule', async () => {
+    const selectors = { item: '.result', link: '.story', next: '.next-page' };
+    const httpCrawl = vi
+      .fn<CrawlPage>()
+      .mockResolvedValueOnce(page([item(1)], 'https://example.com/news?page=2'))
+      .mockResolvedValueOnce(page([item(2)]));
+
+    const result = await testHubPage(
+      'https://example.com/news',
+      'http',
+      { ...options, maxPages: 2, selectors },
+      { httpCrawl, playwrightCrawl: vi.fn<CrawlPage>() },
+    );
+
+    expect(httpCrawl).toHaveBeenNthCalledWith(1, 'https://example.com/news', selectors);
+    expect(httpCrawl).toHaveBeenNthCalledWith(2, 'https://example.com/news?page=2', selectors);
+    expect(result.rule).toEqual({ selectors });
   });
 });

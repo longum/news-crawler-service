@@ -27,6 +27,7 @@ const defaultOptions: HubTestOptions = {
   delayMs: 0,
   stopOn403: true,
   stopWhenNoNewItems: true,
+  selectors: {},
 };
 
 const sleep = (delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs));
@@ -42,15 +43,15 @@ export async function testHubPage(
 
   if (renderMode === 'playwright') {
     renderModeUsed = 'playwright';
-    firstPage = await dependencies.playwrightCrawl(url);
+    firstPage = await dependencies.playwrightCrawl(url, options.selectors);
   } else {
     try {
-      firstPage = await dependencies.httpCrawl(url);
+      firstPage = await dependencies.httpCrawl(url, options.selectors);
       renderModeUsed = 'http';
     } catch (error) {
       if (renderMode === 'http') throw error;
       renderModeUsed = 'playwright';
-      firstPage = await dependencies.playwrightCrawl(url);
+      firstPage = await dependencies.playwrightCrawl(url, options.selectors);
     }
 
     if (
@@ -60,7 +61,7 @@ export async function testHubPage(
       firstPage.items.length < AUTO_HTTP_MIN_ITEMS
     ) {
       renderModeUsed = 'playwright';
-      firstPage = await dependencies.playwrightCrawl(url);
+      firstPage = await dependencies.playwrightCrawl(url, options.selectors);
     }
   }
 
@@ -96,13 +97,13 @@ export async function testHubPage(
 
     if (options.delayMs > 0) await wait(options.delayMs);
     visited.push(page.nextUrl);
-    page = await crawl(page.nextUrl);
+    page = await crawl(page.nextUrl, options.selectors);
   }
 
   return {
     renderModeUsed,
     items: [...itemsByUrl.values()],
-    rule: {},
+    rule: { selectors: options.selectors },
     pages: { visited, nextUrl: page.nextUrl, stoppedReason },
   };
 }

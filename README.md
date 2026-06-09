@@ -43,7 +43,14 @@ curl -sS -X POST http://localhost:3000/hub/test \
     "maxPages": 3,
     "delayMs": 1500,
     "stopOn403": true,
-    "stopWhenNoNewItems": true
+    "stopWhenNoNewItems": true,
+    "selectors": {
+      "item": ".views-row",
+      "title": ".field-title",
+      "link": "a",
+      "date": "time",
+      "next": "a[rel=next]"
+    }
   }'
 ```
 
@@ -75,8 +82,25 @@ curl -sS -X POST http://localhost:3000/hub/test \
 - `delayMs`：翻页请求前等待时间，默认 `0`，最大 `60000`
 - `stopOn403`：遇到 HTTP 403 时停止翻页，默认 `true`
 - `stopWhenNoNewItems`：某页没有新增候选 URL 时停止翻页，默认 `true`
+- `selectors`：可选的手动 CSS selector 规则，支持 `item`、`title`、`link`、`date`、`next`
 
-多页候选结果按 URL 去重。成功响应包含 `renderModeUsed`、候选新闻、当前空规则对象 `rule`，以及分页状态：
+传入 `selectors.item` 时使用手动 item 模式；未传时继续使用自动候选识别。手动 item 模式中，`link` 默认 `a[href]`，`title` 默认复用 `link`。传入 `selectors.next` 时优先用它识别下一页。
+
+多页候选结果按 URL 去重。成功响应包含 `renderModeUsed`、候选新闻、实际使用规则 `rule.selectors`，以及分页状态：
+
+```json
+{
+  "rule": {
+    "selectors": {
+      "item": ".views-row",
+      "title": ".field-title",
+      "link": "a",
+      "date": "time",
+      "next": "a[rel=next]"
+    }
+  }
+}
+```
 
 ```json
 {

@@ -1,8 +1,9 @@
 import express, { type ErrorRequestHandler } from 'express';
 import { testHubPage } from './hub-service.js';
-import type { HubTestRunner, RenderMode } from './types.js';
+import type { HubSelectors, HubTestRunner, RenderMode } from './types.js';
 
 const renderModes = new Set<RenderMode>(['auto', 'http', 'playwright']);
+const selectorNames = ['item', 'title', 'link', 'date', 'next'] as const;
 
 function validateUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -12,6 +13,27 @@ function validateUrl(value: unknown): string | null {
   } catch {
     return null;
   }
+}
+
+function parseSelectors(value: unknown): HubSelectors | null {
+  if (value === undefined) return {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+
+  const selectors: HubSelectors = {};
+  for (const name of selectorNames) {
+    const selector = (value as Record<string, unknown>)[name];
+    if (selector === undefined) continue;
+    if (typeof selector !== 'string' || !selector.trim()) {
+      throw new Error(`selectors.${name} must be a non-empty string`);
+    }
+    selectors[name] = selector.trim();
+  }
+
+  if (selectors.item) {
+    selectors.link ??= 'a[href]';
+    selectors.title ??= selectors.link;
+  }
+  return selectors;
 }
 
 export function createApp(runHubTest: HubTestRunner = testHubPage) {
@@ -59,12 +81,25 @@ export function createApp(runHubTest: HubTestRunner = testHubPage) {
       return;
     }
 
+    let selectors: HubSelectors | null;
+    try {
+      selectors = parseSelectors(request.body?.selectors);
+    } catch (error) {
+      response.status(400).json({ ok: false, error: (error as Error).message });
+      return;
+    }
+    if (!selectors) {
+      response.status(400).json({ ok: false, error: 'selectors must be an object' });
+      return;
+    }
+
     try {
       const result = await runHubTest(url, renderMode, {
         maxPages,
         delayMs,
         stopOn403,
         stopWhenNoNewItems,
+        selectors,
       });
       response.json({ ok: true, url, ...result });
     } catch (error) {
