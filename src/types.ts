@@ -50,3 +50,35 @@ export type HubTestRunner = (
   renderMode: RenderMode,
   options: HubTestOptions,
 ) => Promise<HubTestResult>;
+
+export interface Article {
+  title: string;
+  byline: string | null;
+  siteName: string | null;
+  excerpt: string | null;
+  contentHtml: string;
+  textContent: string;
+  textLength: number;
+  wordCount: number;
+  paragraphCount: number;
+  longParagraphCount?: number;
+  publishedAt: string | null;
+  requestedUrl: string;
+  finalUrl: string;
+  extractorUsed?: 'readability' | 'dom-fallback';
+}
+
+export interface ArticleFetchedPage {
+  requestedUrl: string;
+  finalUrl: string;
+  html: string;
+  statusCode: number;
+}
+
+export interface ArticleTestResult {
+  renderModeUsed: RenderModeUsed;
+  article: Article;
+}
+
+export type ArticleFetchPage = (url: string) => Promise<ArticleFetchedPage>;
+export type ArticleTestRunner = (url: string, renderMode: RenderMode) => Promise<ArticleTestResult>;

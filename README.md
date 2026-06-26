@@ -1,6 +1,6 @@
 # news-crawler-service
 
-个人新闻系统的外部 hub page 抓取测试服务。当前仅提供健康检查和单个列表页候选新闻解析，不抓正文、不存数据库。
+个人新闻系统的外部抓取测试服务。当前提供健康检查、列表页候选新闻解析和单篇文章正文抽取，不存数据库。
 
 ## 环境要求
 
@@ -152,6 +152,58 @@ curl -sS -X POST http://localhost:3000/hub/test \
 `stoppedReason` 在遇到 HTTP 403 时为 `"http_403"`，在某页没有新增 URL 时为 `"no_new_items"`，其他情况为 `null`。
 
 候选结果优先返回 URL path 包含 `/news/` 的链接，其次优先返回提取到发布日期的链接。所有错误均返回：
+
+### 单篇文章正文抽取
+
+`POST /article/test` 只处理单篇文章正文抽取，不会在 `/hub/test` 的列表页抓取过程中自动抓正文。
+
+默认 `auto` 模式先使用 HTTP 获取 HTML，并用 JSDOM + Mozilla Readability 提取正文；当 HTTP 请求失败、Readability 提取失败，或正文质量规则不通过时回退 Playwright：
+
+```bash
+curl -sS -X POST http://localhost:3000/article/test \
+  -H 'Content-Type: application/json' \
+  -H 'x-api-key: your-secret-key' \
+  -d '{
+    "url": "https://example.com/news/story",
+    "renderMode": "auto"
+  }'
+```
+
+也可以传 `"renderMode": "http"` 强制只使用 HTTP，或传 `"renderMode": "playwright"` 强制使用 Playwright。
+
+成功响应包含实际使用的抓取方式、请求 URL、重定向后的最终 URL、清理后的 HTML 正文和纯文本正文：
+
+```json
+{
+  "ok": true,
+  "url": "https://example.com/news/story",
+  "renderModeUsed": "http",
+  "article": {
+    "title": "Article title",
+    "byline": null,
+    "siteName": "Example",
+    "excerpt": "Short summary",
+    "contentHtml": "<div><p>Article body...</p></div>",
+    "textContent": "Article body...",
+    "textLength": 1234,
+    "wordCount": 180,
+    "paragraphCount": 6,
+    "longParagraphCount": 5,
+    "publishedAt": "2026-06-25T01:00:00.000Z",
+    "requestedUrl": "https://example.com/news/story",
+    "finalUrl": "https://example.com/news/story",
+    "extractorUsed": "readability"
+  }
+}
+```
+
+`publishedAt` 优先从 JSON-LD 提取，其次从 Open Graph / meta 标签和 `time` 标签提取；无法确定时返回 `null`。`contentHtml` 返回前会移除 `script`、`iframe`、事件属性和危险 URL 协议，同时保留 Readability 提取后的正文结构。
+
+正文质量规则集中在代码中管理，要求标题存在、正文长度和有效长段落达标，并结合链接文本密度、短链接列表数量、噪声文本占比、标题与正文关联度、主体段落文本占比识别版权声明、首页和列表页误判。默认先使用 Readability；当 Readability 结果质量不合格时，会尝试一次通用 DOM fallback 补救短快讯等非标准文章。`extractorUsed` 表示最终使用的抽取器，可能为 `"readability"` 或 `"dom-fallback"`。质量规则拒绝时，错误信息会包含拒绝原因，便于调试。
+
+服务带有基本 SSRF 防护：禁止请求 `localhost`、回环地址、私有网段、链路本地地址、云元数据地址和其他保留网段；HTTP 重定向后的 `finalUrl` 也会再次校验。某些代理、透明代理或受控网络环境可能会把外部域名映射到 `198.18.0.0/15` 等保留网段，这种情况下服务会被 SSRF 规则阻断。应通过部署网络或明确配置解决，不应默认降低安全限制。
+
+所有错误均返回：
 
 ```json
 {

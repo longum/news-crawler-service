@@ -50,6 +50,9 @@ web_modules/
 # Optional npm cache directory
 .npm
 
+# Local Python virtualenvs for experiments
+.venv/
+
 # Optional eslint cache
 .eslintcache
 

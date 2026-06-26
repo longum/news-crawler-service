@@ -1,7 +1,9 @@
 import express, { type ErrorRequestHandler } from 'express';
 import { timingSafeEqual } from 'node:crypto';
+import { testArticlePage } from './article-service.js';
 import { testHubPage } from './hub-service.js';
-import type { HubSelectors, HubTestRunner, RenderMode } from './types.js';
+import type { ArticleTestRunner, HubSelectors, HubTestRunner, RenderMode } from './types.js';
+import { isObviouslyPublicHttpUrl } from './url-security.js';
 
 const renderModes = new Set<RenderMode>(['auto', 'http', 'playwright']);
 const selectorNames = ['item', 'title', 'link', 'date', 'next'] as const;
@@ -47,6 +49,7 @@ function matchesApiKey(candidate: string | undefined, apiKey: string): boolean {
 export function createApp(
   runHubTest: HubTestRunner = testHubPage,
   apiKey: string | undefined = process.env.CRAWLER_API_KEY,
+  runArticleTest: ArticleTestRunner = testArticlePage,
 ) {
   const app = express();
 
@@ -134,6 +137,28 @@ export function createApp(
       response.json({ ok: true, url, ...result });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to test hub page';
+      response.status(502).json({ ok: false, error: message });
+    }
+  });
+
+  app.post('/article/test', async (request, response) => {
+    const url = isObviouslyPublicHttpUrl(request.body?.url);
+    if (!url) {
+      response.status(400).json({ ok: false, error: 'url must be a valid public http or https URL' });
+      return;
+    }
+
+    const renderMode = request.body?.renderMode ?? 'auto';
+    if (!renderModes.has(renderMode)) {
+      response.status(400).json({ ok: false, error: 'renderMode must be auto, http, or playwright' });
+      return;
+    }
+
+    try {
+      const result = await runArticleTest(url, renderMode);
+      response.json({ ok: true, url, ...result });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to test article page';
       response.status(502).json({ ok: false, error: message });
     }
   });

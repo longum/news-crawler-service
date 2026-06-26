@@ -1,7 +1,7 @@
 import request from 'supertest';
 import { describe, expect, it, vi } from 'vitest';
 import { createApp } from './app.js';
-import type { HubTestRunner } from './types.js';
+import type { ArticleTestRunner, HubTestRunner } from './types.js';
 
 describe('app', () => {
   it('returns health status', async () => {
@@ -131,6 +131,72 @@ describe('app', () => {
       stopOn403: true,
       stopWhenNoNewItems: true,
       selectors: {},
+    });
+  });
+
+  it('adds article test route with auto mode by default', async () => {
+    const hubRunner = vi.fn<HubTestRunner>();
+    const articleRunner = vi.fn<ArticleTestRunner>().mockResolvedValue({
+      renderModeUsed: 'http',
+      article: {
+        title: 'Readable article title',
+        byline: null,
+        siteName: 'Example',
+        excerpt: null,
+        contentHtml: '<p>Readable article body.</p>',
+        textContent: 'Readable article body.',
+        textLength: 22,
+        wordCount: 3,
+        paragraphCount: 1,
+        publishedAt: null,
+        requestedUrl: 'https://example.com/story',
+        finalUrl: 'https://example.com/story',
+      },
+    });
+    const app = createApp(hubRunner, undefined, articleRunner);
+
+    const response = await request(app).post('/article/test').send({ url: 'https://example.com/story' });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      ok: true,
+      url: 'https://example.com/story',
+      renderModeUsed: 'http',
+      article: {
+        title: 'Readable article title',
+        byline: null,
+        siteName: 'Example',
+        excerpt: null,
+        contentHtml: '<p>Readable article body.</p>',
+        textContent: 'Readable article body.',
+        textLength: 22,
+        wordCount: 3,
+        paragraphCount: 1,
+        publishedAt: null,
+        requestedUrl: 'https://example.com/story',
+        finalUrl: 'https://example.com/story',
+      },
+    });
+    expect(articleRunner).toHaveBeenCalledWith('https://example.com/story', 'auto');
+  });
+
+  it('validates article test URL and render mode', async () => {
+    const app = createApp(vi.fn<HubTestRunner>(), undefined, vi.fn<ArticleTestRunner>());
+
+    const invalidUrl = await request(app).post('/article/test').send({ url: 'http://localhost/story' });
+    const invalidMode = await request(app)
+      .post('/article/test')
+      .send({ url: 'https://example.com/story', renderMode: 'browser' });
+
+    expect(invalidUrl.status).toBe(400);
+    expect(invalidUrl.body).toEqual({
+      ok: false,
+      error: 'url must be a valid public http or https URL',
+    });
+    expect(invalidMode.status).toBe(400);
+    expect(invalidMode.body).toEqual({
+      ok: false,
+      error: 'renderMode must be auto, http, or playwright',
     });
   });
 
