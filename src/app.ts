@@ -1,6 +1,11 @@
 import express, { type ErrorRequestHandler } from 'express';
 import { timingSafeEqual } from 'node:crypto';
 import { testArticlePage } from './article-service.js';
+import {
+  defaultCrawlScheduler,
+  type CrawlSchedulerLike,
+  type CrawlScheduleResult,
+} from './crawl-scheduler.js';
 import { testHubPage } from './hub-service.js';
 import type { ArticleTestRunner, HubSelectors, HubTestRunner, RenderMode } from './types.js';
 import { isObviouslyPublicHttpUrl } from './url-security.js';
@@ -46,10 +51,19 @@ function matchesApiKey(candidate: string | undefined, apiKey: string): boolean {
   return candidateBuffer.length === apiKeyBuffer.length && timingSafeEqual(candidateBuffer, apiKeyBuffer);
 }
 
+function respondWithQueueError(
+  response: express.Response,
+  result: Extract<CrawlScheduleResult<unknown>, { accepted: false }>,
+): void {
+  const error = result.reason === 'queue_full' ? 'crawler queue is full' : 'crawler queue wait timed out';
+  response.set('Retry-After', '300').status(429).json({ ok: false, error });
+}
+
 export function createApp(
   runHubTest: HubTestRunner = testHubPage,
   apiKey: string | undefined = process.env.CRAWLER_API_KEY,
   runArticleTest: ArticleTestRunner = testArticlePage,
+  crawlScheduler: CrawlSchedulerLike = defaultCrawlScheduler,
 ) {
   const app = express();
 
@@ -81,6 +95,10 @@ export function createApp(
     const url = validateUrl(request.body?.url);
     if (!url) {
       response.status(400).json({ ok: false, error: 'url must be a valid http or https URL' });
+      return;
+    }
+    if (!isObviouslyPublicHttpUrl(url)) {
+      response.status(400).json({ ok: false, error: 'url must be a valid public http or https URL' });
       return;
     }
 
@@ -127,14 +145,20 @@ export function createApp(
     }
 
     try {
-      const result = await runHubTest(url, renderMode, {
-        maxPages,
-        delayMs,
-        stopOn403,
-        stopWhenNoNewItems,
-        selectors,
-      });
-      response.json({ ok: true, url, ...result });
+      const scheduled = await crawlScheduler.run(() =>
+        runHubTest(url, renderMode, {
+          maxPages,
+          delayMs,
+          stopOn403,
+          stopWhenNoNewItems,
+          selectors,
+        }),
+      );
+      if (!scheduled.accepted) {
+        respondWithQueueError(response, scheduled);
+        return;
+      }
+      response.json({ ok: true, url, ...scheduled.value });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to test hub page';
       response.status(502).json({ ok: false, error: message });
@@ -155,8 +179,12 @@ export function createApp(
     }
 
     try {
-      const result = await runArticleTest(url, renderMode);
-      response.json({ ok: true, url, ...result });
+      const scheduled = await crawlScheduler.run(() => runArticleTest(url, renderMode));
+      if (!scheduled.accepted) {
+        respondWithQueueError(response, scheduled);
+        return;
+      }
+      response.json({ ok: true, url, ...scheduled.value });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to test article page';
       response.status(502).json({ ok: false, error: message });

@@ -58,6 +58,12 @@ curl -X POST http://localhost:3000/hub/test \
 
 未设置 `CRAWLER_API_KEY` 时不启用鉴权。`GET /health` 始终无需鉴权。
 
+## 抓取资源限制
+
+Hub 和 Article 请求共用一个进程内 FIFO 调度器：同时只运行 `1` 个抓取任务，最多允许 `3` 个请求等待。队列已满，或请求排队超过 `300` 秒仍未开始执行时，返回 HTTP `429`，并带有 `Retry-After: 300`。该限制以单个 Node.js 进程为边界；多进程或多副本部署还需要外部共享队列。
+
+每个页面从公共地址校验、HTTP 重定向到响应体读取共用 `30` 秒 deadline；HTML 最大为 `5 MiB`。HTTP 响应采用流式计数，超时或超限后立即取消。Playwright 页面同样限制为 `30` 秒和 `5 MiB`，并会校验最终地址及页面发出的网络请求；浏览器路径的大小检查发生在页面 HTML 生成后，主要限制后续解析和 API 返回体，不等同于传输层流量上限。
+
 ## 接口测试
 
 健康检查：
@@ -151,6 +157,8 @@ curl -sS -X POST http://localhost:3000/hub/test \
 
 `stoppedReason` 在遇到 HTTP 403 时为 `"http_403"`，在某页没有新增 URL 时为 `"no_new_items"`，其他情况为 `null`。
 
+Hub 入口 URL 和每一个分页 URL 都必须解析到公共地址。跨域分页仍允许，但目标域名及 Playwright 子资源同样需要通过公共地址检查。
+
 候选结果优先返回 URL path 包含 `/news/` 的链接，其次优先返回提取到发布日期的链接。所有错误均返回：
 
 ### 单篇文章正文抽取
@@ -201,7 +209,9 @@ curl -sS -X POST http://localhost:3000/article/test \
 
 正文质量规则集中在代码中管理，要求标题存在、正文长度和有效长段落达标，并结合链接文本密度、短链接列表数量、噪声文本占比、标题与正文关联度、主体段落文本占比识别版权声明、首页和列表页误判。默认先使用 Readability；当 Readability 结果质量不合格时，会尝试一次通用 DOM fallback 补救短快讯等非标准文章。`extractorUsed` 表示最终使用的抽取器，可能为 `"readability"` 或 `"dom-fallback"`。质量规则拒绝时，错误信息会包含拒绝原因，便于调试。
 
-服务带有基本 SSRF 防护：禁止请求 `localhost`、回环地址、私有网段、链路本地地址、云元数据地址和其他保留网段；HTTP 重定向后的 `finalUrl` 也会再次校验。某些代理、透明代理或受控网络环境可能会把外部域名映射到 `198.18.0.0/15` 等保留网段，这种情况下服务会被 SSRF 规则阻断。应通过部署网络或明确配置解决，不应默认降低安全限制。
+所有 Hub 和 Article 抓取都带有应用层 SSRF 防护：禁止请求 `localhost`、回环地址、私有网段、链路本地地址、云元数据地址和其他保留网段；HTTP 重定向、Hub 分页、Playwright 最终地址和浏览器子资源都会再次校验。某些代理、透明代理或受控网络环境可能会把外部域名映射到 `198.18.0.0/15` 等保留网段，这种情况下服务会被 SSRF 规则阻断。应通过部署网络或明确配置解决，不应默认降低安全限制。
+
+DNS 校验和底层 HTTP/Chromium 建立连接之间仍存在操作系统解析层面的 TOCTOU 窗口。若调用方可能控制恶意 DNS，生产部署必须同时使用出站防火墙、网络命名空间或受控代理阻断私网目标；仅依赖应用层检查不能替代网络层隔离。
 
 所有错误均返回：
 
@@ -211,6 +221,8 @@ curl -sS -X POST http://localhost:3000/article/test \
   "error": "..."
 }
 ```
+
+队列错误使用 HTTP `429`，`error` 为 `"crawler queue is full"` 或 `"crawler queue wait timed out"`。抓取超时、HTML 超限、地址检查失败及上游抓取错误继续使用相同的 JSON 错误结构。
 
 ## 人工验证 Profile
 

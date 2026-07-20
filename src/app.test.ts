@@ -1,7 +1,16 @@
 import request from 'supertest';
 import { describe, expect, it, vi } from 'vitest';
 import { createApp } from './app.js';
+import { CrawlScheduler, type CrawlScheduleResult } from './crawl-scheduler.js';
 import type { ArticleTestRunner, HubTestRunner } from './types.js';
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
 
 describe('app', () => {
   it('returns health status', async () => {
@@ -103,6 +112,20 @@ describe('app', () => {
 
     expect(response.status).toBe(400);
     expect(response.body).toEqual({ ok: false, error: 'url must be a valid http or https URL' });
+  });
+
+  it('rejects an obvious private hub URL before invoking the runner', async () => {
+    const runner = vi.fn<HubTestRunner>();
+    const app = createApp(runner);
+
+    const response = await request(app).post('/hub/test').send({ url: 'http://127.0.0.1/private' });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      ok: false,
+      error: 'url must be a valid public http or https URL',
+    });
+    expect(runner).not.toHaveBeenCalled();
   });
 
   it('uses auto mode by default and returns the runner result', async () => {
@@ -293,5 +316,57 @@ describe('app', () => {
       stopWhenNoNewItems: true,
       selectors: { item: '.result', title: '.story', link: '.story' },
     });
+  });
+
+  it('shares one crawl slot across hub and article routes and returns 429 when the queue is full', async () => {
+    const active = deferred<void>();
+    const hubRunner = vi.fn<HubTestRunner>().mockImplementation(async () => {
+      await active.promise;
+      return {
+        renderModeUsed: 'http',
+        items: [],
+        rule: { selectors: {} },
+        pages: { visited: [], nextUrl: null, stoppedReason: null },
+      };
+    });
+    const articleRunner = vi.fn<ArticleTestRunner>();
+    const scheduler = new CrawlScheduler({ maxConcurrent: 1, maxQueued: 0, maxQueueWaitMs: 300_000 });
+    const app = createApp(hubRunner, undefined, articleRunner, scheduler);
+
+    const activeRequest = request(app)
+      .post('/hub/test')
+      .send({ url: 'https://example.com/news' })
+      .then((response) => response);
+    await vi.waitFor(() => expect(hubRunner).toHaveBeenCalledOnce());
+
+    const rejected = await request(app)
+      .post('/article/test')
+      .send({ url: 'https://example.com/story' });
+
+    expect(rejected.status).toBe(429);
+    expect(rejected.body).toEqual({ ok: false, error: 'crawler queue is full' });
+    expect(rejected.headers['retry-after']).toBe('300');
+    expect(articleRunner).not.toHaveBeenCalled();
+
+    active.resolve();
+    expect((await activeRequest).status).toBe(200);
+  });
+
+  it('maps crawl queue wait timeouts to 429 without invoking the runner', async () => {
+    const scheduler = {
+      run: vi.fn(async (): Promise<CrawlScheduleResult<never>> => ({
+        accepted: false,
+        reason: 'wait_timeout',
+      })),
+    };
+    const hubRunner = vi.fn<HubTestRunner>();
+    const app = createApp(hubRunner, undefined, vi.fn<ArticleTestRunner>(), scheduler);
+
+    const response = await request(app).post('/hub/test').send({ url: 'https://example.com/news' });
+
+    expect(response.status).toBe(429);
+    expect(response.body).toEqual({ ok: false, error: 'crawler queue wait timed out' });
+    expect(response.headers['retry-after']).toBe('300');
+    expect(hubRunner).not.toHaveBeenCalled();
   });
 });

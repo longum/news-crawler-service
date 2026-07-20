@@ -7,16 +7,26 @@ describe('url security helpers', () => {
     expect(isBlockedIpAddress('10.1.2.3')).toBe(true);
     expect(isBlockedIpAddress('172.16.0.1')).toBe(true);
     expect(isBlockedIpAddress('192.168.1.1')).toBe(true);
+    expect(isBlockedIpAddress('192.0.2.1')).toBe(true);
+    expect(isBlockedIpAddress('198.51.100.1')).toBe(true);
+    expect(isBlockedIpAddress('203.0.113.1')).toBe(true);
+    expect(isBlockedIpAddress('240.0.0.1')).toBe(true);
     expect(isBlockedIpAddress('169.254.169.254')).toBe(true);
     expect(isBlockedIpAddress('::1')).toBe(true);
     expect(isBlockedIpAddress('fc00::1')).toBe(true);
+    expect(isBlockedIpAddress('fe90::1')).toBe(true);
+    expect(isBlockedIpAddress('fec0::1')).toBe(true);
+    expect(isBlockedIpAddress('2001:db8::1')).toBe(true);
     expect(isBlockedIpAddress('::ffff:192.168.1.1')).toBe(true);
+    expect(isBlockedIpAddress('::ffff:c0a8:101')).toBe(true);
   });
 
   it('allows obvious public HTTP URLs without DNS lookup', () => {
     expect(isObviouslyPublicHttpUrl('https://news.example/story')).toBe('https://news.example/story');
     expect(isObviouslyPublicHttpUrl('http://localhost/story')).toBeNull();
     expect(isObviouslyPublicHttpUrl('http://127.0.0.1/story')).toBeNull();
+    expect(isObviouslyPublicHttpUrl('http://[::1]/story')).toBeNull();
+    expect(isObviouslyPublicHttpUrl('http://[::ffff:c0a8:101]/story')).toBeNull();
     expect(isObviouslyPublicHttpUrl('file:///tmp/story')).toBeNull();
   });
 });

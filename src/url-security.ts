@@ -3,6 +3,13 @@ import { isIP } from 'node:net';
 
 const blockedHostnames = new Set(['localhost']);
 
+function normalizeHostname(hostname: string): string {
+  const normalized = hostname.toLowerCase();
+  return normalized.startsWith('[') && normalized.endsWith(']')
+    ? normalized.slice(1, -1)
+    : normalized;
+}
+
 function ipv4ToNumber(address: string): number | null {
   const parts = address.split('.');
   if (parts.length !== 4) return null;
@@ -20,34 +27,54 @@ function isInIpv4Range(address: string, start: string, prefixLength: number): bo
 }
 
 export function isBlockedIpAddress(address: string): boolean {
-  const family = isIP(address);
+  const normalizedAddress = normalizeHostname(address);
+  const family = isIP(normalizedAddress);
   if (family === 0) return false;
 
   if (family === 4) {
     return (
-      isInIpv4Range(address, '0.0.0.0', 8) ||
-      isInIpv4Range(address, '10.0.0.0', 8) ||
-      isInIpv4Range(address, '100.64.0.0', 10) ||
-      isInIpv4Range(address, '127.0.0.0', 8) ||
-      isInIpv4Range(address, '169.254.0.0', 16) ||
-      isInIpv4Range(address, '172.16.0.0', 12) ||
-      isInIpv4Range(address, '192.168.0.0', 16) ||
-      isInIpv4Range(address, '198.18.0.0', 15) ||
-      isInIpv4Range(address, '224.0.0.0', 4) ||
-      address === '255.255.255.255'
+      isInIpv4Range(normalizedAddress, '0.0.0.0', 8) ||
+      isInIpv4Range(normalizedAddress, '10.0.0.0', 8) ||
+      isInIpv4Range(normalizedAddress, '100.64.0.0', 10) ||
+      isInIpv4Range(normalizedAddress, '127.0.0.0', 8) ||
+      isInIpv4Range(normalizedAddress, '169.254.0.0', 16) ||
+      isInIpv4Range(normalizedAddress, '172.16.0.0', 12) ||
+      isInIpv4Range(normalizedAddress, '192.0.0.0', 24) ||
+      isInIpv4Range(normalizedAddress, '192.0.2.0', 24) ||
+      isInIpv4Range(normalizedAddress, '192.88.99.0', 24) ||
+      isInIpv4Range(normalizedAddress, '192.168.0.0', 16) ||
+      isInIpv4Range(normalizedAddress, '198.18.0.0', 15) ||
+      isInIpv4Range(normalizedAddress, '198.51.100.0', 24) ||
+      isInIpv4Range(normalizedAddress, '203.0.113.0', 24) ||
+      isInIpv4Range(normalizedAddress, '224.0.0.0', 4) ||
+      isInIpv4Range(normalizedAddress, '240.0.0.0', 4) ||
+      normalizedAddress === '255.255.255.255'
     );
   }
 
-  const normalized = address.toLowerCase();
+  const normalized = normalizedAddress;
   const mappedIpv4 = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)?.[1];
   if (mappedIpv4) return isBlockedIpAddress(mappedIpv4);
+  const mappedHexIpv4 = normalized.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (mappedHexIpv4) {
+    const high = Number.parseInt(mappedHexIpv4[1], 16);
+    const low = Number.parseInt(mappedHexIpv4[2], 16);
+    return isBlockedIpAddress(
+      `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`,
+    );
+  }
+  const firstHextet = Number.parseInt(normalized.split(':', 1)[0] || '0', 16);
+  const isLinkLocal = (firstHextet & 0xffc0) === 0xfe80;
+  const isSiteLocal = (firstHextet & 0xffc0) === 0xfec0;
 
   return (
     normalized === '::' ||
     normalized === '::1' ||
     normalized.startsWith('fc') ||
     normalized.startsWith('fd') ||
-    normalized.startsWith('fe80:') ||
+    isLinkLocal ||
+    isSiteLocal ||
+    normalized.startsWith('2001:db8:') ||
     normalized.startsWith('ff') ||
     normalized.startsWith('::ffff:127.') ||
     normalized.startsWith('::ffff:10.') ||
@@ -65,7 +92,7 @@ export function parseHttpUrl(value: string): URL {
 }
 
 export function hasBlockedHostname(url: URL): boolean {
-  const hostname = url.hostname.toLowerCase();
+  const hostname = normalizeHostname(url.hostname);
   return blockedHostnames.has(hostname) || isBlockedIpAddress(hostname);
 }
 
@@ -75,7 +102,7 @@ export async function assertPublicHttpUrl(value: string, label = 'url'): Promise
     throw new Error(`${label} resolves to a blocked address`);
   }
 
-  const records = await lookup(url.hostname, { all: true, verbatim: true });
+  const records = await lookup(normalizeHostname(url.hostname), { all: true, verbatim: true });
   if (records.length === 0 || records.some((record) => isBlockedIpAddress(record.address))) {
     throw new Error(`${label} resolves to a blocked address`);
   }
